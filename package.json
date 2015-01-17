@@ -1,5 +1,5 @@
 {
-  "name": "micselect",
+  "name": "webrtc-sources",
   "version": "1.0.0",
   "description": "WebRTC Microphone Selection Lib",
   "main": "index-node.js",
