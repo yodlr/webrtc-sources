@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>getUserMedia</title>
+        <script src="micselect.bundle.js"></script>
+        <script>
+            var ms = new micselect();
+            var once = true;
+            ms.getMics();
+            ms.on('audioSources', function(as) {
+              console.log(as);
+              ms.setMic(as[0]);
+              if (once) {
+                once = false;
+                ms.getMics();
+              }
+            });
+            ms.on('volume', function(vol) {
+              console.log(vol);
+            })
+        </script>
+    </head>
+    <body>
+    </body>
+</html>
