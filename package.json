@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "eventemitter3": "^0.1.6",
+    "getusermedia": "^1.2.0",
     "webrtcsupport": "^1.2.2"
   }
 }
