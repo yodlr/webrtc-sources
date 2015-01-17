@@ -1,6 +1,6 @@
 {
   "name": "webrtc-sources",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WebRTC Microphone Selection Lib",
   "main": "index-node.js",
   "browser": "index-browser.js",
