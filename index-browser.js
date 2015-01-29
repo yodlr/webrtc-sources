@@ -1,5 +1,6 @@
 var getusermedia = require('getusermedia');
 var support = require('webrtcsupport');
+var hark = require('hark');
 var EventEmitter3 = require('eventemitter3').EventEmitter3;
 var util = require('util');
 
@@ -10,6 +11,7 @@ function MicSelect() {
   EventEmitter3.call(this);
   
   var ms = this;
+  ms.emitVol = false;
   ms.support = support.webAudio && support.mediaStream && supportGetUserMedia;
   
   if (!support) {
@@ -19,6 +21,11 @@ function MicSelect() {
   ms.context = new support.AudioContext();
 }
 util.inherits(MicSelect, EventEmitter3);
+
+MicSelect.prototype.setEmitVol = function setEmitVol(value) {
+  var ms = this;
+  ms.emitVol = value;
+}
 
 MicSelect.prototype.getMics = function getMics() {
   var ms = this;
@@ -53,22 +60,43 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
 
 MicSelect.prototype.setMic = function setMic(source) {
   var ms = this;
-  if (!source || !source.id) {
-    return ms.emit('error', 'Cannot set mic, invalid source');
+  if (source.id) {
+    source = source.id;
   }
   ms.source = source;
   var gumOpts = {
-    audio: {optional: [{ sourceId: source.id}] },
+    audio: {optional: [{ sourceId: source}] },
     video: false
   }
   getusermedia(gumOpts, ms.onSetMic.bind(ms));
 }
 
 MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
+  var ms = this;
   if (err) {
-    console.error(err);
     return ms.emit('error', err);
   }
+  
+  var options = {
+    threshold: -50,
+    interval: 50
+  };
+  if (ms.hark) {
+    ms.hark.stop();
+    ms.hark.off('speaking');
+    ms.hark.off('stopped_speaking');
+    ms.hark = null;
+  }
+  ms.hark = hark(stream, options);
+
+  ms.hark.on('speaking', function() {
+    ms.emit('speaking');
+  });
+
+  ms.hark.on('stopped_speaking', function() {
+    ms.emit('stopped_speaking');
+  });
+  
   if (ms.microphone) {
     ms.microphone.disconnect();
     ms.analyser.disconnect();
@@ -82,14 +110,16 @@ MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
   ms.analyser = ms.context.createAnalyser();
   ms.analyser.smoothingTimeConstant = 0.3;
   ms.analyser.fftSize = 1024;
-  ms.jsNode = ms.context.createScriptProcessor(0, 1, 1);
+  ms.jsNode = ms.context.createScriptProcessor(4096, 1, 1);
   ms.jsNode.onaudioprocess = function() {
     
     // get the average, bincount is fftsize / 2
-    var array =  new Uint8Array(ms.analyser.frequencyBinCount);
-    ms.analyser.getByteFrequencyData(array);
-    var average = getAverageVolume(array)
-    ms.emit('volume', average);
+    if (ms.emitVol) {
+      var array =  new Uint8Array(ms.analyser.frequencyBinCount);
+      ms.analyser.getByteFrequencyData(array);
+      var average = getAverageVolume(array);
+      ms.emit('volume', average);
+    }
   }
   
   ms.microphone.connect(ms.analyser);

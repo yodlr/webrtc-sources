@@ -16,6 +16,7 @@
   "dependencies": {
     "eventemitter3": "^0.1.6",
     "getusermedia": "^1.2.0",
+    "hark": "^1.1.1",
     "webrtcsupport": "^1.2.2"
   },
   "repository": {
