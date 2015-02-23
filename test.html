@@ -5,6 +5,9 @@
         <script src="micselect.bundle.js"></script>
         <script>
             var ms = new micselect();
+            ms.on('error', function(err) {
+              console.error(err);
+            });
             var once = true;
             ms.getMics();
             ms.on('audioSources', function(as) {

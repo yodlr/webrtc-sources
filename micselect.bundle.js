@@ -1,6 +1,7 @@
 !function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.micselect=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 var getusermedia = require('getusermedia');
 var support = require('webrtcsupport');
+var hark = require('hark');
 var EventEmitter3 = require('eventemitter3').EventEmitter3;
 var util = require('util');
 
@@ -9,26 +10,44 @@ function MicSelect() {
     return new MicSelect();
   }
   EventEmitter3.call(this);
-  
+
   var ms = this;
-  ms.support = support.webAudio && support.mediaStream && supportGetUserMedia;
-  
-  if (!support) {
-    return ms.emit('error', 'No WebRTC/WebAudio/MediaStream support');
+  ms.emitVol = false;
+  ms.support = support.supportWebAudio
+                && support.supportMediaStream
+                && support.supportGetUserMedia && false;
+
+  if (!ms.support) {
+    setTimeout(function errorTimeout() {
+      return ms.emit('error', {
+        message: 'No WebRTC/WebAudio/MediaStream support',
+        webAudio: support.supportWebAudio,
+        mediaStream: support.supportMediaStream,
+        getUserMedia: support.supportGetUserMedia
+      });
+    }, 0);
   }
-  
+
   ms.context = new support.AudioContext();
 }
 util.inherits(MicSelect, EventEmitter3);
 
+MicSelect.prototype.setEmitVol = function setEmitVol(value) {
+  var ms = this;
+  ms.emitVol = value;
+};
+
 MicSelect.prototype.getMics = function getMics() {
   var ms = this;
+  if (!ms.support) {
+    return;
+  }
   var gumOpts = {
     audio: true,
     video: false
-  }
+  };
   getusermedia(gumOpts, ms.onGetMics.bind(ms));
-}
+};
 
 MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
   var ms = this;
@@ -37,39 +56,64 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
     return ms.emit('error', err);
   }
   var audioSources = [];
-  
-  window.MediaStreamTrack.getSources(function (sources) {
-    sources.forEach(function (source) {
+
+  window.MediaStreamTrack.getSources(function getSourcesResp(sources) {
+    sources.forEach(function eachSource(source) {
       switch (source.kind) {
         case 'audio':
           // console.log('audio', source);
           audioSources.push(source);
           break;
+        default:
+          break;
       }
     });
     ms.emit('audioSources', audioSources);
   });
-}
-
+};
 
 MicSelect.prototype.setMic = function setMic(source) {
   var ms = this;
-  if (!source || !source.id) {
-    return ms.emit('error', 'Cannot set mic, invalid source');
+  if (!ms.support) {
+    return;
+  }
+  if (source.id) {
+    source = source.id;
   }
   ms.source = source;
   var gumOpts = {
-    audio: {optional: [{ sourceId: source.id}] },
+    audio: {optional: [{ sourceId: source}] },
     video: false
-  }
+  };
   getusermedia(gumOpts, ms.onSetMic.bind(ms));
-}
+};
 
 MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
+  var ms = this;
   if (err) {
-    console.error(err);
     return ms.emit('error', err);
   }
+
+  var options = {
+    threshold: -50,
+    interval: 50
+  };
+  if (ms.hark) {
+    ms.hark.stop();
+    ms.hark.off('speaking');
+    ms.hark.off('stopped_speaking');
+    ms.hark = null;
+  }
+  ms.hark = hark(stream, options);
+
+  ms.hark.on('speaking', function speaking() {
+    ms.emit('speaking');
+  });
+
+  ms.hark.on('stopped_speaking', function stoppedSpeaking() {
+    ms.emit('stopped_speaking');
+  });
+
   if (ms.microphone) {
     ms.microphone.disconnect();
     ms.analyser.disconnect();
@@ -78,25 +122,27 @@ MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
     ms.anaylser = null;
     ms.jsNode = null;
   }
-  
+
   ms.microphone = ms.context.createMediaStreamSource(stream);
   ms.analyser = ms.context.createAnalyser();
   ms.analyser.smoothingTimeConstant = 0.3;
   ms.analyser.fftSize = 1024;
-  ms.jsNode = ms.context.createScriptProcessor(0, 1, 1);
-  ms.jsNode.onaudioprocess = function() {
-    
+  ms.jsNode = ms.context.createScriptProcessor(4096, 1, 1);
+  ms.jsNode.onaudioprocess = function onAudioProcess() {
+
     // get the average, bincount is fftsize / 2
-    var array =  new Uint8Array(ms.analyser.frequencyBinCount);
-    ms.analyser.getByteFrequencyData(array);
-    var average = getAverageVolume(array)
-    ms.emit('volume', average);
-  }
-  
+    if (ms.emitVol) {
+      var array =  new Uint8Array(ms.analyser.frequencyBinCount);
+      ms.analyser.getByteFrequencyData(array);
+      var average = getAverageVolume(array);
+      ms.emit('volume', average);
+    }
+  };
+
   ms.microphone.connect(ms.analyser);
   ms.analyser.connect(ms.jsNode);
   ms.jsNode.connect(ms.context.destination);
-}
+};
 
 function getAverageVolume(array) {
   var values = 0;
@@ -110,10 +156,9 @@ function getAverageVolume(array) {
   return average;
 }
 
-
 module.exports = MicSelect;
 
-},{"eventemitter3":6,"getusermedia":7,"util":5,"webrtcsupport":8}],2:[function(require,module,exports){
+},{"eventemitter3":6,"getusermedia":7,"hark":8,"util":5,"webrtcsupport":10}],2:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -1121,6 +1166,277 @@ module.exports = function (constraints, cb) {
 };
 
 },{}],8:[function(require,module,exports){
+var WildEmitter = require('wildemitter');
+
+function getMaxVolume (analyser, fftBins) {
+  var maxVolume = -Infinity;
+  analyser.getFloatFrequencyData(fftBins);
+
+  for(var i=4, ii=fftBins.length; i < ii; i++) {
+    if (fftBins[i] > maxVolume && fftBins[i] < 0) {
+      maxVolume = fftBins[i];
+    }
+  };
+
+  return maxVolume;
+}
+
+
+var audioContextType = window.webkitAudioContext || window.AudioContext;
+// use a single audio context due to hardware limits
+var audioContext = null;
+module.exports = function(stream, options) {
+  var harker = new WildEmitter();
+
+
+  // make it not break in non-supported browsers
+  if (!audioContextType) return harker;
+
+  //Config
+  var options = options || {},
+      smoothing = (options.smoothing || 0.1),
+      interval = (options.interval || 50),
+      threshold = options.threshold,
+      play = options.play,
+      history = options.history || 10,
+      running = true;
+
+  //Setup Audio Context
+  if (!audioContext) {
+    audioContext = new audioContextType();
+  }
+  var sourceNode, fftBins, analyser;
+
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = smoothing;
+  fftBins = new Float32Array(analyser.fftSize);
+
+  if (stream.jquery) stream = stream[0];
+  if (stream instanceof HTMLAudioElement || stream instanceof HTMLVideoElement) {
+    //Audio Tag
+    sourceNode = audioContext.createMediaElementSource(stream);
+    if (typeof play === 'undefined') play = true;
+    threshold = threshold || -50;
+  } else {
+    //WebRTC Stream
+    sourceNode = audioContext.createMediaStreamSource(stream);
+    threshold = threshold || -50;
+  }
+
+  sourceNode.connect(analyser);
+  if (play) analyser.connect(audioContext.destination);
+
+  harker.speaking = false;
+
+  harker.setThreshold = function(t) {
+    threshold = t;
+  };
+
+  harker.setInterval = function(i) {
+    interval = i;
+  };
+  
+  harker.stop = function() {
+    running = false;
+    harker.emit('volume_change', -100, threshold);
+    if (harker.speaking) {
+      harker.speaking = false;
+      harker.emit('stopped_speaking');
+    }
+  };
+  harker.speakingHistory = [];
+  for (var i = 0; i < history; i++) {
+      harker.speakingHistory.push(0);
+  }
+
+  // Poll the analyser node to determine if speaking
+  // and emit events if changed
+  var looper = function() {
+    setTimeout(function() {
+    
+      //check if stop has been called
+      if(!running) {
+        return;
+      }
+      
+      var currentVolume = getMaxVolume(analyser, fftBins);
+
+      harker.emit('volume_change', currentVolume, threshold);
+
+      var history = 0;
+      if (currentVolume > threshold && !harker.speaking) {
+        // trigger quickly, short history
+        for (var i = harker.speakingHistory.length - 3; i < harker.speakingHistory.length; i++) {
+          history += harker.speakingHistory[i];
+        }
+        if (history >= 2) {
+          harker.speaking = true;
+          harker.emit('speaking');
+        }
+      } else if (currentVolume < threshold && harker.speaking) {
+        for (var i = 0; i < harker.speakingHistory.length; i++) {
+          history += harker.speakingHistory[i];
+        }
+        if (history == 0) {
+          harker.speaking = false;
+          harker.emit('stopped_speaking');
+        }
+      }
+      harker.speakingHistory.shift();
+      harker.speakingHistory.push(0 + (currentVolume > threshold));
+
+      looper();
+    }, interval);
+  };
+  looper();
+
+
+  return harker;
+}
+
+},{"wildemitter":9}],9:[function(require,module,exports){
+/*
+WildEmitter.js is a slim little event emitter by @henrikjoreteg largely based 
+on @visionmedia's Emitter from UI Kit.
+
+Why? I wanted it standalone.
+
+I also wanted support for wildcard emitters like this:
+
+emitter.on('*', function (eventName, other, event, payloads) {
+    
+});
+
+emitter.on('somenamespace*', function (eventName, payloads) {
+    
+});
+
+Please note that callbacks triggered by wildcard registered events also get 
+the event name as the first argument.
+*/
+module.exports = WildEmitter;
+
+function WildEmitter() {
+    this.callbacks = {};
+}
+
+// Listen on the given `event` with `fn`. Store a group name if present.
+WildEmitter.prototype.on = function (event, groupName, fn) {
+    var hasGroup = (arguments.length === 3),
+        group = hasGroup ? arguments[1] : undefined,
+        func = hasGroup ? arguments[2] : arguments[1];
+    func._groupName = group;
+    (this.callbacks[event] = this.callbacks[event] || []).push(func);
+    return this;
+};
+
+// Adds an `event` listener that will be invoked a single
+// time then automatically removed.
+WildEmitter.prototype.once = function (event, groupName, fn) {
+    var self = this,
+        hasGroup = (arguments.length === 3),
+        group = hasGroup ? arguments[1] : undefined,
+        func = hasGroup ? arguments[2] : arguments[1];
+    function on() {
+        self.off(event, on);
+        func.apply(this, arguments);
+    }
+    this.on(event, group, on);
+    return this;
+};
+
+// Unbinds an entire group
+WildEmitter.prototype.releaseGroup = function (groupName) {
+    var item, i, len, handlers;
+    for (item in this.callbacks) {
+        handlers = this.callbacks[item];
+        for (i = 0, len = handlers.length; i < len; i++) {
+            if (handlers[i]._groupName === groupName) {
+                //console.log('removing');
+                // remove it and shorten the array we're looping through
+                handlers.splice(i, 1);
+                i--;
+                len--;
+            }
+        }
+    }
+    return this;
+};
+
+// Remove the given callback for `event` or all
+// registered callbacks.
+WildEmitter.prototype.off = function (event, fn) {
+    var callbacks = this.callbacks[event],
+        i;
+
+    if (!callbacks) return this;
+
+    // remove all handlers
+    if (arguments.length === 1) {
+        delete this.callbacks[event];
+        return this;
+    }
+
+    // remove specific handler
+    i = callbacks.indexOf(fn);
+    callbacks.splice(i, 1);
+    return this;
+};
+
+/// Emit `event` with the given args.
+// also calls any `*` handlers
+WildEmitter.prototype.emit = function (event) {
+    var args = [].slice.call(arguments, 1),
+        callbacks = this.callbacks[event],
+        specialCallbacks = this.getWildcardCallbacks(event),
+        i,
+        len,
+        item,
+        listeners;
+
+    if (callbacks) {
+        listeners = callbacks.slice();
+        for (i = 0, len = listeners.length; i < len; ++i) {
+            if (listeners[i]) {
+                listeners[i].apply(this, args);
+            } else {
+                break;
+            }
+        }
+    }
+
+    if (specialCallbacks) {
+        len = specialCallbacks.length;
+        listeners = specialCallbacks.slice();
+        for (i = 0, len = listeners.length; i < len; ++i) {
+            if (listeners[i]) {
+                listeners[i].apply(this, [event].concat(args));
+            } else {
+                break;
+            }
+        }
+    }
+
+    return this;
+};
+
+// Helper for for finding special wildcard event handlers that match the event
+WildEmitter.prototype.getWildcardCallbacks = function (eventName) {
+    var item,
+        split,
+        result = [];
+
+    for (item in this.callbacks) {
+        split = item.split('*');
+        if (item === '*' || (split.length === 2 && eventName.slice(0, split[0].length) === split[0])) {
+            result = result.concat(this.callbacks[item]);
+        }
+    }
+    return result;
+};
+
+},{}],10:[function(require,module,exports){
 // created by @HenrikJoreteg
 var prefix;
 
@@ -1137,21 +1453,23 @@ var MediaStream = window.webkitMediaStream || window.MediaStream;
 var screenSharing = window.location.protocol === 'https:' &&
     ((window.navigator.userAgent.match('Chrome') && parseInt(window.navigator.userAgent.match(/Chrome\/(.*) /)[1], 10) >= 26) ||
      (window.navigator.userAgent.match('Firefox') && parseInt(window.navigator.userAgent.match(/Firefox\/(.*)/)[1], 10) >= 33));
-var AudioContext = window.webkitAudioContext || window.AudioContext;
+var AudioContext = window.AudioContext || window.webkitAudioContext;
 var supportVp8 = document.createElement('video').canPlayType('video/webm; codecs="vp8", vorbis') === "probably";
 var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.msGetUserMedia || navigator.mozGetUserMedia;
 
 // export support flags and constructors.prototype && PC
 module.exports = {
+    prefix: prefix,
     support: !!PC && supportVp8 && !!getUserMedia,
+    // new support style
     supportRTCPeerConnection: !!PC,
     supportVp8: supportVp8,
     supportGetUserMedia: !!getUserMedia,
-    supportDataChannel: PC && PC.prototype && PC.prototype.createDataChannel,
+    supportDataChannel: !!(PC && PC.prototype && PC.prototype.createDataChannel),
     supportWebAudio: !!(AudioContext && AudioContext.prototype.createMediaStreamSource),
     supportMediaStream: !!(MediaStream && MediaStream.prototype.removeTrack),
     supportScreenSharing: !!screenSharing,
-    prefix: prefix,
+    // constructors
     AudioContext: AudioContext,
     PeerConnection: PC,
     SessionDescription: SessionDescription,

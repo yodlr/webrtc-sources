@@ -9,15 +9,24 @@ function MicSelect() {
     return new MicSelect();
   }
   EventEmitter3.call(this);
-  
+
   var ms = this;
   ms.emitVol = false;
-  ms.support = support.webAudio && support.mediaStream && supportGetUserMedia;
-  
-  if (!support) {
-    return ms.emit('error', 'No WebRTC/WebAudio/MediaStream support');
+  ms.support = support.supportWebAudio
+                && support.supportMediaStream
+                && support.supportGetUserMedia;
+
+  if (!ms.support) {
+    setTimeout(function errorTimeout() {
+      return ms.emit('error', {
+        message: 'No WebRTC/WebAudio/MediaStream support',
+        webAudio: support.supportWebAudio,
+        mediaStream: support.supportMediaStream,
+        getUserMedia: support.supportGetUserMedia
+      });
+    }, 0);
   }
-  
+
   ms.context = new support.AudioContext();
 }
 util.inherits(MicSelect, EventEmitter3);
@@ -25,16 +34,19 @@ util.inherits(MicSelect, EventEmitter3);
 MicSelect.prototype.setEmitVol = function setEmitVol(value) {
   var ms = this;
   ms.emitVol = value;
-}
+};
 
 MicSelect.prototype.getMics = function getMics() {
   var ms = this;
+  if (!ms.support) {
+    return;
+  }
   var gumOpts = {
     audio: true,
     video: false
-  }
+  };
   getusermedia(gumOpts, ms.onGetMics.bind(ms));
-}
+};
 
 MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
   var ms = this;
@@ -43,23 +55,27 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
     return ms.emit('error', err);
   }
   var audioSources = [];
-  
-  window.MediaStreamTrack.getSources(function (sources) {
-    sources.forEach(function (source) {
+
+  window.MediaStreamTrack.getSources(function getSourcesResp(sources) {
+    sources.forEach(function eachSource(source) {
       switch (source.kind) {
         case 'audio':
           // console.log('audio', source);
           audioSources.push(source);
           break;
+        default:
+          break;
       }
     });
     ms.emit('audioSources', audioSources);
   });
-}
-
+};
 
 MicSelect.prototype.setMic = function setMic(source) {
   var ms = this;
+  if (!ms.support) {
+    return;
+  }
   if (source.id) {
     source = source.id;
   }
@@ -67,16 +83,16 @@ MicSelect.prototype.setMic = function setMic(source) {
   var gumOpts = {
     audio: {optional: [{ sourceId: source}] },
     video: false
-  }
+  };
   getusermedia(gumOpts, ms.onSetMic.bind(ms));
-}
+};
 
 MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
   var ms = this;
   if (err) {
     return ms.emit('error', err);
   }
-  
+
   var options = {
     threshold: -50,
     interval: 50
@@ -89,14 +105,14 @@ MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
   }
   ms.hark = hark(stream, options);
 
-  ms.hark.on('speaking', function() {
+  ms.hark.on('speaking', function speaking() {
     ms.emit('speaking');
   });
 
-  ms.hark.on('stopped_speaking', function() {
+  ms.hark.on('stopped_speaking', function stoppedSpeaking() {
     ms.emit('stopped_speaking');
   });
-  
+
   if (ms.microphone) {
     ms.microphone.disconnect();
     ms.analyser.disconnect();
@@ -105,14 +121,14 @@ MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
     ms.anaylser = null;
     ms.jsNode = null;
   }
-  
+
   ms.microphone = ms.context.createMediaStreamSource(stream);
   ms.analyser = ms.context.createAnalyser();
   ms.analyser.smoothingTimeConstant = 0.3;
   ms.analyser.fftSize = 1024;
   ms.jsNode = ms.context.createScriptProcessor(4096, 1, 1);
-  ms.jsNode.onaudioprocess = function() {
-    
+  ms.jsNode.onaudioprocess = function onAudioProcess() {
+
     // get the average, bincount is fftsize / 2
     if (ms.emitVol) {
       var array =  new Uint8Array(ms.analyser.frequencyBinCount);
@@ -120,12 +136,12 @@ MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
       var average = getAverageVolume(array);
       ms.emit('volume', average);
     }
-  }
-  
+  };
+
   ms.microphone.connect(ms.analyser);
   ms.analyser.connect(ms.jsNode);
   ms.jsNode.connect(ms.context.destination);
-}
+};
 
 function getAverageVolume(array) {
   var values = 0;
@@ -138,6 +154,5 @@ function getAverageVolume(array) {
   average = values / length;
   return average;
 }
-
 
 module.exports = MicSelect;
