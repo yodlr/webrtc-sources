@@ -6,13 +6,13 @@ var options = {
   cert: fs.readFileSync('certs/server.crt')
 };
 
-https.createServer(options, function (req, res) {
-  if (req.url==='/') {
+https.createServer(options, function reqHandler(req, res) {
+  if (req.url === '/') {
     return fs.createReadStream('test.html').pipe(res);
   }
-  if (req.url==='/micselect.bundle.js') {
+  if (req.url === '/micselect.bundle.js') {
     return fs.createReadStream('micselect.bundle.js').pipe(res);
   }
   res.writeHead(200);
-  res.end("hello world\n");
+  res.end('hello world\n');
 }).listen(8000);

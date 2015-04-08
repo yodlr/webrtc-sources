@@ -18,7 +18,7 @@ function MicSelect() {
 
   if (!ms.support) {
     setTimeout(function errorTimeout() {
-    ms.emit('error', {
+      ms.emit('error', {
         message: 'No WebRTC/WebAudio/MediaStream support',
         webAudio: support.supportWebAudio,
         mediaStream: support.supportMediaStream,

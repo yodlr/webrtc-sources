@@ -5,20 +5,27 @@
   "main": "index-node.js",
   "browser": "index-browser.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "node build.js"
+    "test": "npm run jscs",
+    "build": "node build.js",
+    "jscs": "./node_modules/.bin/yodlr-standard --verbose"
   },
   "author": "Ross Kukulinski <ross@getyodlr.com>",
   "license": "MIT",
   "devDependencies": {
     "browserify": "^8.1.1",
-    "jshint": "^2.5.11"
+    "yodlr-standard": "^10.1.0"
   },
   "dependencies": {
     "eventemitter3": "^0.1.6",
     "getusermedia": "^1.2.0",
     "hark": "^1.1.1",
     "webrtcsupport": "^2.0.0"
+  },
+  "standard": {
+    "ignore": [
+      "node_modules/**",
+      "*.bundle.js"
+    ]
   },
   "repository": {
     "type": "git",
