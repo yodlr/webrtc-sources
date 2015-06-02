@@ -12,22 +12,27 @@ function MicSelect() {
 
   var ms = this;
   ms.emitVol = false;
-  ms.support = support.supportWebAudio
-                && support.supportMediaStream
-                && support.supportGetUserMedia;
+  ms.support = support.supportWebAudio && support.supportGetUserMedia;
+  ms.supportMediaStream = support.supportMediaStream;
 
   if (!ms.support) {
     setTimeout(function errorTimeout() {
       ms.emit('error', {
-        message: 'No WebRTC/WebAudio/MediaStream support',
+        message: 'No WebRTC/WebAudio support',
         webAudio: support.supportWebAudio,
-        mediaStream: support.supportMediaStream,
         getUserMedia: support.supportGetUserMedia
       });
     }, 0);
     return;
   }
-
+  if(!ms.supportMediaStream) {
+    setTimeout(function supportTimeout() {
+      ms.emit('mediaStream', {
+        message: 'No MediaStream support',
+        mediaStream: support.supportMediaStream
+      });
+    }, 0);
+  }
   ms.context = new support.AudioContext();
 }
 util.inherits(MicSelect, EventEmitter3);
@@ -55,26 +60,34 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
     console.error(err);
     return ms.emit('error', err);
   }
-  var audioSources = [];
+  var audioSources = {
+    mics: []
+  };
 
-  window.MediaStreamTrack.getSources(function getSourcesResp(sources) {
-    sources.forEach(function eachSource(source) {
-      switch (source.kind) {
-        case 'audio':
-          // console.log('audio', source);
-          audioSources.push(source);
-          break;
-        default:
-          break;
-      }
-    });
+  if(!ms.supportMediaStream) {
+    audioSources.err = new Error('No MediaStream support');
     ms.emit('audioSources', audioSources);
-  });
+    ms.onSetMic(err, stream);
+  }
+  else {
+    window.MediaStreamTrack.getSources(function getSourcesResp(sources) {
+      sources.forEach(function eachSource(source) {
+        switch (source.kind) {
+          case 'audio':
+            audioSources.mics.push(source);
+            break;
+          default:
+            break;
+        }
+      });
+      ms.emit('audioSources', audioSources);
+    });
+  }
 };
 
 MicSelect.prototype.setMic = function setMic(source) {
   var ms = this;
-  if (!ms.support) {
+  if (!ms.support || !ms.supportMediaStream) {
     return;
   }
   if (source.id) {
