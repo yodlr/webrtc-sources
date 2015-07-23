@@ -56,14 +56,20 @@ MicSelect.prototype.getMics = function getMics() {
 
 MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
   var ms = this;
-  if (err) {
+  if (err && err.name !== 'DevicesNotFound') {
     console.error(err);
     return ms.emit('error', err);
   }
+  
   var audioSources = {
     mics: []
   };
 
+  if(err && err.name === 'DevicesNotFound') {
+    ms.emit('audioSources', audioSources);
+    return;
+  }
+  
   if(!ms.supportMediaStream) {
     audioSources.err = new Error('No MediaStream support');
     ms.emit('audioSources', audioSources);
