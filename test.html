@@ -11,8 +11,8 @@
             var once = true;
             ms.getMics();
             ms.on('audioSources', function(as) {
-              console.log(as);
-              ms.setMic(as[0]);
+              console.log(as.mics);
+              ms.setMic(as.mics[0]);
               if (once) {
                 once = false;
                 ms.getMics();

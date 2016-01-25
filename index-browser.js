@@ -1,20 +1,19 @@
-var getusermedia = require('getusermedia');
 var support = require('webrtcsupport');
 var hark = require('hark');
-var EventEmitter3 = require('eventemitter3').EventEmitter3;
+var EventEmitter2 = require('eventemitter2').EventEmitter2;
 var util = require('util');
+var adapter = require('webrtc-adapter-test');
 
 function MicSelect() {
   if (!(this instanceof MicSelect)) {
     return new MicSelect();
   }
-  EventEmitter3.call(this);
+  EventEmitter2.call(this);
 
   var ms = this;
   ms.emitVol = false;
   ms.support = support.supportWebAudio && support.supportGetUserMedia;
   ms.supportMediaStream = support.supportMediaStream;
-
   if (!ms.support) {
     setTimeout(function errorTimeout() {
       ms.emit('error', {
@@ -35,7 +34,7 @@ function MicSelect() {
   }
   ms.context = new support.AudioContext();
 }
-util.inherits(MicSelect, EventEmitter3);
+util.inherits(MicSelect, EventEmitter2);
 
 MicSelect.prototype.setEmitVol = function setEmitVol(value) {
   var ms = this;
@@ -51,13 +50,11 @@ MicSelect.prototype.getMics = function getMics() {
     audio: true,
     video: false
   };
-  getusermedia(gumOpts, ms.onGetMics.bind(ms));
+  adapter.getUserMedia(gumOpts, ms.onGetMics.bind(ms), ms.onError.bind(ms));
 };
 
-MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
-  var ms = this;
+MicSelect.prototype.onError = function onError(err) {
   if (err && err.name !== 'DevicesNotFound') {
-    console.error(err);
     return ms.emit('error', err);
   }
   
@@ -69,6 +66,14 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
     ms.emit('audioSources', audioSources);
     return;
   }
+}
+
+MicSelect.prototype.onGetMics = function onGetMics(stream) {
+  var ms = this;
+  
+  var audioSources = {
+    mics: []
+  };
   
   if(!ms.supportMediaStream) {
     audioSources.err = new Error('No MediaStream support');
@@ -76,18 +81,23 @@ MicSelect.prototype.onGetMics = function onGetMics(err, stream) {
     ms.onSetMic(err, stream);
   }
   else {
-    window.MediaStreamTrack.getSources(function getSourcesResp(sources) {
-      sources.forEach(function eachSource(source) {
-        switch (source.kind) {
-          case 'audio':
-            audioSources.mics.push(source);
-            break;
-          default:
-            break;
-        }
+    navigator.mediaDevices.enumerateDevices()
+      .then(function getSourcesResp(sources) {
+        sources.forEach(function eachSource(source) {
+          switch (source.kind) {
+            case 'audioinput':
+              audioSources.mics.push(source);
+              break;
+            default:
+              break;
+          }
+        });
+        ms.emit('audioSources', audioSources);
+      })
+      .catch(function(err) {
+        ms.emit('audioSources', audioSources);
+        return;
       });
-      ms.emit('audioSources', audioSources);
-    });
   }
 };
 
@@ -104,15 +114,15 @@ MicSelect.prototype.setMic = function setMic(source) {
     audio: {optional: [{ sourceId: source}] },
     video: false
   };
-  getusermedia(gumOpts, ms.onSetMic.bind(ms));
+  adapter.getUserMedia(gumOpts, ms.onSetMic.bind(ms), ms.onSetMicErr.bind(ms));
 };
 
-MicSelect.prototype.onSetMic = function onSetMic(err, stream) {
-  var ms = this;
-  if (err) {
-    return ms.emit('error', err);
-  }
+MicSelect.prototype.onSetMicErr = function onSetMicErr(err) {
+  return ms.emit('error', err);
+}
 
+MicSelect.prototype.onSetMic = function onSetMic(stream) {
+  var ms = this;
   var options = {
     threshold: -50,
     interval: 50
