@@ -13,7 +13,7 @@ function MicSelect() {
   var ms = this;
   ms.emitVol = false;
   ms.support = support.supportWebAudio && support.supportGetUserMedia;
-  ms.supportMediaStream = support.supportMediaStream;
+  ms.supportMediaStream = support.supportMediaStream && support.prefix !== 'moz';
   if (!ms.support) {
     setTimeout(function errorTimeout() {
       ms.emit('error', {
@@ -78,7 +78,6 @@ MicSelect.prototype.onGetMics = function onGetMics(stream) {
   if(!ms.supportMediaStream) {
     audioSources.err = new Error('No MediaStream support');
     ms.emit('audioSources', audioSources);
-    ms.onSetMic(err, stream);
   }
   else {
     navigator.mediaDevices.enumerateDevices()
